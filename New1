@@ -1,137 +1,51 @@
--- =================================================
--- ME Bridge Item List Viewer (Touch Paging)
--- TOP half tap  = Page UP
--- BOTTOM half   = Page DOWN
--- =================================================
+-- Peripheral setup
+local monitor = peripheral.wrap("right")
+local inv = peripheral.wrap("left")
 
-local ME_SIDE = "right"
+monitor.setTextScale(0.5)
 
-local me = peripheral.wrap(ME_SIDE)
-local mon = peripheral.find("monitor")
-if not mon then error("No monitor found") end
-
-mon.setTextScale(1.5)
-mon.setBackgroundColor(colors.black)
-mon.clear()
-
--- ==============================
--- Helpers
--- ==============================
-
-local function safeGetItems()
-    if type(me.getItems) ~= "function" then return {} end
-    local ok, result = pcall(me.getItems)
-    if not ok or type(result) ~= "table" then return {} end
-    return result
-end
-
-local function format(n)
-    if not n then return "0" end
-    if n >= 1e9 then return string.format("%.1fG", n / 1e9)
-    elseif n >= 1e6 then return string.format("%.1fM", n / 1e6)
-    elseif n >= 1e3 then return string.format("%.1fk", n / 1e3)
-    else return tostring(n) end
-end
-
--- ==============================
--- Load Items
--- ==============================
-
-local items = safeGetItems()
-table.sort(items, function(a,b)
-    return (a.name or "") < (b.name or "")
-end)
-
+local width, height = monitor.getSize()
 local scroll = 0
+local items = {}
 
--- ==============================
--- Draw Functions
--- ==============================
-
-local function drawScrollbar(total, visible, offset)
-    local w, h = mon.getSize()
-    if total <= visible then return end
-
-    local trackTop = 3
-    local trackHeight = h - 3
-
-    local barHeight = math.max(1, math.floor((visible / total) * trackHeight))
-    local maxOffset = total - visible
-    local barPos = math.floor((offset / maxOffset) * (trackHeight - barHeight))
-
-    -- Track
-    for y = trackTop, h - 1 do
-        mon.setCursorPos(w, y)
-        mon.setBackgroundColor(colors.gray)
-        mon.write(" ")
+-- Load inventory into table
+local function loadItems()
+    items = {}
+    for _, item in pairs(inv.list()) do
+        local name = item.name:gsub(".-:", "")
+        table.insert(items, name .. " x" .. item.count)
     end
-
-    -- Thumb
-    for y = trackTop + barPos, trackTop + barPos + barHeight do
-        mon.setCursorPos(w, y)
-        mon.setBackgroundColor(colors.white)
-        mon.write(" ")
-    end
-
-    mon.setBackgroundColor(colors.black)
 end
 
+-- Draw items based on scroll position
 local function draw()
-    mon.clear()
-    local w, h = mon.getSize()
-    local rows = h - 3
-
-    -- Header
-    mon.setTextColor(colors.yellow)
-    mon.setCursorPos(2, 1)
-    mon.write("ME ITEM LIST ("..#items.." items)")
-
-    mon.setTextColor(colors.gray)
-    mon.setCursorPos(w - 24, 1)
-    mon.write("Tap TOP=Up  BOT=Down")
-
-    -- Items
-    for i = 1, rows do
-        local idx = scroll + i
-        if idx > #items then break end
-
-        local item = items[idx]
-        local name = string.sub(item.name or "?", 1, w - 15)
-        local amt = format(item.amount)
-
-        mon.setTextColor(colors.white)
-        mon.setCursorPos(2, i + 2)
-        mon.write(name)
-
-        mon.setTextColor(colors.lightGray)
-        mon.setCursorPos(w - #amt - 1, i + 2)
-        mon.write(amt)
+    monitor.clear()
+    for i = 1, height do
+        local index = i + scroll
+        if items[index] then
+            monitor.setCursorPos(1, i)
+            monitor.write(items[index])
+        end
     end
-
-    drawScrollbar(#items, rows, scroll)
 end
 
+loadItems()
 draw()
 
--- ==============================
--- Touch Loop
--- ==============================
-
+-- Touch handler
 while true do
-    local event, side, x, y = os.pullEvent("monitor_touch")
-    if side ~= peripheral.getName(mon) then goto continue end
+    local _, _, x, y = os.pullEvent("monitor_touch")
 
-    local _, h = mon.getSize()
-    local page = h - 3
+    -- Top half scrolls up
+    if y <= height / 2 then
+        scroll = math.max(0, scroll - 1)
 
-    if y <= h / 2 then
-        -- TOP HALF = Page Up
-        scroll = math.max(0, scroll - page)
+    -- Bottom half scrolls down
     else
-        -- BOTTOM HALF = Page Down
-        scroll = math.min(#items - page, scroll + page)
+        if scroll < #items - height then
+            scroll = scroll + 1
+        end
     end
 
     draw()
-    ::continue::
 end
