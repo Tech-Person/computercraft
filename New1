@@ -1,6 +1,49 @@
-local f = fs.open("cube_methods.txt", "w")
-for _, m in ipairs(peripheral.getMethods("top")) do
-  f.writeLine(m)
+-- ME Bridge Method Viewer (Monitor Paging)
+
+local BRIDGE_SIDE = "right"
+
+local mon = peripheral.find("monitor")
+assert(mon, "No monitor found")
+
+local methods = peripheral.getMethods(BRIDGE_SIDE)
+assert(methods, "No ME Bridge found on "..BRIDGE_SIDE)
+
+table.sort(methods)
+
+mon.setTextScale(1)
+mon.setBackgroundColor(colors.black)
+mon.setTextColor(colors.white)
+
+local w, h = mon.getSize()
+local perPage = h - 2
+local page = 0
+local maxPage = math.max(0, math.ceil(#methods / perPage) - 1)
+
+local function draw()
+  mon.clear()
+  mon.setCursorPos(1,1)
+  mon.write("ME Bridge Methods (page "..(page+1).."/"..(maxPage+1)..")")
+
+  for i = 1, perPage do
+    local idx = page * perPage + i
+    if not methods[idx] then break end
+    mon.setCursorPos(1, i + 1)
+    mon.write(methods[idx])
+  end
 end
-f.close()
-print("saved")
+
+draw()
+
+while true do
+  local _, side, _, y = os.pullEvent("monitor_touch")
+  if side ~= peripheral.getName(mon) then goto continue end
+
+  if y <= h / 2 then
+    page = math.max(0, page - 1)
+  else
+    page = math.min(maxPage, page + 1)
+  end
+
+  draw()
+  ::continue::
+end
