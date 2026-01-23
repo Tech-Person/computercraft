@@ -1,0 +1,238 @@
+------------------------------------------------------------
+-- AE2_stats_display.lua
+-- v3.1 (ComputerCraft 1.12 compatible)
+------------------------------------------------------------
+
+local VERSION = "v3.1"
+
+------------------------
+-- CONFIG
+------------------------
+
+local ME_BRIDGE_SIDE = "right"
+local ENERGY_CUBE_SIDE = "top"
+
+local ENERGY_SAMPLE_INTERVAL = 1
+local AE2_REFRESH_INTERVAL = 3
+
+local AUTO_SCROLL_DELAY = 8       -- seconds after manual input
+local AUTO_SCROLL_STEP = 2        -- seconds per scroll step
+
+------------------------
+-- UTIL
+------------------------
+
+local function autoscaleFE(fe)
+  local u = {"FE","kFE","MFE","GFE","TFE"}
+  local i = 1
+  while fe >= 1000 and i < #u do fe = fe / 1000 i = i + 1 end
+  return string.format("%.2f %s", fe, u[i])
+end
+
+local function autoscaleItems(n)
+  local u = {"","k","M","G"}
+  local i = 1
+  while n >= 1000 and i < #u do n = n / 1000 i = i + 1 end
+  return string.format("%.2f%s", n, u[i])
+end
+
+local function autoscaleBuckets(mb)
+  local b = mb / 1000
+  local u = {"B","kB","MB","GB","TB"}
+  local i = 1
+  while b >= 1000 and i < #u do b = b / 1000 i = i + 1 end
+  return string.format("%.2f %s", b, u[i])
+end
+
+------------------------
+-- PERIPHERALS
+------------------------
+
+local me = peripheral.wrap(ME_BRIDGE_SIDE)
+local cube = peripheral.wrap(ENERGY_CUBE_SIDE)
+local mon = peripheral.find("monitor")
+
+assert(mon, "No monitor found")
+
+mon.setTextScale(1)
+
+local W, H = mon.getSize()
+local MID = math.floor(W / 2)
+
+------------------------
+-- ENERGY (estimation)
+------------------------
+
+local estimatedEnergy = 0
+local lastCubeEnergy
+local lastRate = 0
+
+local function sampleEnergy()
+  if not cube then return end
+  local e = cube.getEnergy()
+  local m = cube.getMaxEnergy()
+  if lastCubeEnergy and e > 0 and e < m then
+    local d = e - lastCubeEnergy
+    estimatedEnergy = math.max(0, estimatedEnergy + d)
+    lastRate = d
+  end
+  lastCubeEnergy = e
+end
+
+------------------------
+-- AE2 DATA
+------------------------
+
+local ae2 = {
+  items = {},
+  fluids = {},
+  usedItems = 0,
+  totalItems = 0,
+  usedFluids = 0,
+  totalFluids = 0,
+}
+
+local function refreshAE2()
+  if not me or not me.isOnline() then return end
+  ae2.items = me.getItems() or {}
+  ae2.fluids = me.getFluids() or {}
+  ae2.usedItems = me.getUsedItemStorage() or 0
+  ae2.totalItems = me.getTotalItemStorage() or 0
+  ae2.usedFluids = me.getUsedFluidStorage() or 0
+  ae2.totalFluids = me.getTotalFluidStorage() or 0
+
+  table.sort(ae2.items, function(a,b) return (a.count or 0) > (b.count or 0) end)
+  table.sort(ae2.fluids, function(a,b) return (a.count or 0) > (b.count or 0) end)
+end
+
+------------------------
+-- SCROLL STATE
+------------------------
+
+local scroll = {
+  items  = { offset = 0, lastInput = 0, lastStep = 0 },
+  fluids = { offset = 0, lastInput = 0, lastStep = 0 },
+}
+
+------------------------
+-- DRAW
+------------------------
+
+local HEADER_LINES = 4
+
+local function drawColumn(x1, x2, title, used, total, list, offset, scaleFn)
+  local y = HEADER_LINES + 1
+
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(x1, HEADER_LINES)
+  mon.write(title)
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(x1, HEADER_LINES + 1)
+  mon.write(scaleFn(used) .. " / " .. scaleFn(total))
+
+  local visible = H - (HEADER_LINES + 1)
+
+  for i = 1, visible do
+    local idx = i + offset
+    local e = list[idx]
+    if not e then break end
+
+    mon.setCursorPos(x1, HEADER_LINES + 1 + i)
+    mon.write(string.sub(e.displayName or e.name or "?", 1, x2 - x1 - 8))
+
+    mon.setCursorPos(x2 - 7, HEADER_LINES + 1 + i)
+    mon.write(scaleFn(e.count or 0))
+  end
+end
+
+local function draw()
+  mon.setBackgroundColor(colors.black)
+  mon.clear()
+
+  -- Header
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1,1)
+  mon.write("AE2 SYSTEM STATUS ("..VERSION..")")
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1,2)
+  mon.write("Energy: "..autoscaleFE(estimatedEnergy))
+
+  mon.setCursorPos(1,3)
+  mon.write("Rate: "..autoscaleFE(lastRate).."/s")
+
+  drawColumn(1, MID-1, "Items", ae2.usedItems, ae2.totalItems,
+             ae2.items, scroll.items.offset, autoscaleItems)
+
+  drawColumn(MID+1, W, "Fluids", ae2.usedFluids, ae2.totalFluids,
+             ae2.fluids, scroll.fluids.offset, autoscaleBuckets)
+end
+
+------------------------
+-- SCROLL UPDATE
+------------------------
+
+local function updateScroll(name, list)
+  local s = scroll[name]
+  local now = os.clock()
+
+  if now - s.lastInput < AUTO_SCROLL_DELAY then return end
+  if now - s.lastStep < AUTO_SCROLL_STEP then return end
+
+  if #list > 0 then
+    s.offset = s.offset + 1
+    if s.offset >= #list then s.offset = 0 end
+  end
+
+  s.lastStep = now
+end
+
+------------------------
+-- INPUT
+------------------------
+
+local function handleTouch(x)
+  local now = os.clock()
+  if x <= MID then
+    scroll.items.lastInput = now
+    scroll.items.offset = math.max(0, scroll.items.offset - 1)
+  else
+    scroll.fluids.lastInput = now
+    scroll.fluids.offset = math.max(0, scroll.fluids.offset - 1)
+  end
+end
+
+------------------------
+-- MAIN LOOP (CC 1.12 SAFE)
+------------------------
+
+local energyTimer = os.startTimer(ENERGY_SAMPLE_INTERVAL)
+local ae2Timer = os.startTimer(AE2_REFRESH_INTERVAL)
+local scrollTimer = os.startTimer(0.2)
+
+refreshAE2()
+draw()
+
+while true do
+  local e, p1, p2, p3 = os.pullEvent()
+
+  if e == "timer" then
+    if p1 == energyTimer then
+      sampleEnergy()
+      energyTimer = os.startTimer(ENERGY_SAMPLE_INTERVAL)
+    elseif p1 == ae2Timer then
+      refreshAE2()
+      ae2Timer = os.startTimer(AE2_REFRESH_INTERVAL)
+    elseif p1 == scrollTimer then
+      updateScroll("items", ae2.items)
+      updateScroll("fluids", ae2.fluids)
+      scrollTimer = os.startTimer(0.2)
+    end
+    draw()
+
+  elseif e == "monitor_touch" then
+    handleTouch(p2)
+    draw()
+  end
+end
