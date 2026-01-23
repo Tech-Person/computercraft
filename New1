@@ -1,49 +1,287 @@
--- ME Bridge Method Viewer (Monitor Paging)
+------------------------------------------------------------
+-- AE2_stats_display.lua
+-- Stoneblock 4 – AE2 + Mekanism + ComputerCraft
+-- Author: ChatGPT (per user specification)
+------------------------------------------------------------
 
-local BRIDGE_SIDE = "right"
+------------------------
+-- CONFIG / CONSTANTS
+------------------------
 
-local mon = peripheral.find("monitor")
-assert(mon, "No monitor found")
+local ME_BRIDGE_SIDE = "right"
+local ENERGY_CUBE_SIDE = "top"
 
-local methods = peripheral.getMethods(BRIDGE_SIDE)
-assert(methods, "No ME Bridge found on "..BRIDGE_SIDE)
+local STATE_FILE = "state.dat"
+local LOG_DIR = "logs"
 
-table.sort(methods)
+local ENERGY_SAMPLE_INTERVAL = 1        -- seconds
+local AE2_REFRESH_INTERVAL = 3           -- seconds
+local STALE_TIMEOUT = 5                  -- seconds
+local STALE_HARD_TIMEOUT = 300            -- seconds (5 minutes)
 
-mon.setTextScale(1)
-mon.setBackgroundColor(colors.black)
-mon.setTextColor(colors.white)
+local DEFAULT_LOW_ENERGY_THRESHOLD = 0.10 -- 10%
 
-local w, h = mon.getSize()
-local perPage = h - 2
-local page = 0
-local maxPage = math.max(0, math.ceil(#methods / perPage) - 1)
+------------------------
+-- UTILITIES
+------------------------
 
-local function draw()
-  mon.clear()
-  mon.setCursorPos(1,1)
-  mon.write("ME Bridge Methods (page "..(page+1).."/"..(maxPage+1)..")")
-
-  for i = 1, perPage do
-    local idx = page * perPage + i
-    if not methods[idx] then break end
-    mon.setCursorPos(1, i + 1)
-    mon.write(methods[idx])
+local function ensureDir(path)
+  if not fs.exists(path) then
+    fs.makeDir(path)
   end
 end
 
-draw()
+local function now()
+  return os.epoch("utc") / 1000
+end
+
+local function formatTime(seconds)
+  local m = math.floor(seconds / 60)
+  local s = math.floor(seconds % 60)
+  return string.format("%dm %ds", m, s)
+end
+
+local function autoscaleFE(fe)
+  local units = { "FE", "kFE", "MFE", "GFE", "TFE", "PFE" }
+  local i = 1
+  while fe >= 1000 and i < #units do
+    fe = fe / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", fe, units[i])
+end
+
+local function autoscaleItems(n)
+  local units = { "", "k", "M", "G" }
+  local i = 1
+  while n >= 1000 and i < #units do
+    n = n / 1000
+    i = i + 1
+  end
+  return string.format("%.2f%s", n, units[i])
+end
+
+local function autoscaleBuckets(mb)
+  local b = mb / 1000
+  local units = { "B", "kB", "MB", "GB", "TB" }
+  local i = 1
+  while b >= 1000 and i < #units do
+    b = b / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", b, units[i])
+end
+
+------------------------
+-- LOGGING
+------------------------
+
+ensureDir(LOG_DIR)
+
+local function log(msg)
+  local date = os.date("%Y-%m-%d")
+  local path = LOG_DIR .. "/" .. date .. ".log"
+  local f = fs.open(path, "a")
+  f.writeLine(os.date("%H:%M:%S") .. " | " .. msg)
+  f.close()
+end
+
+------------------------
+-- LOAD / SAVE STATE
+------------------------
+
+local state = {
+  estimatedEnergy = 0,
+  estimatedMaxEnergy = 1,
+  lowEnergyThreshold = DEFAULT_LOW_ENERGY_THRESHOLD,
+}
+
+local function saveState()
+  local f = fs.open(STATE_FILE, "w")
+  f.write(textutils.serialize(state))
+  f.close()
+end
+
+local function loadState()
+  if not fs.exists(STATE_FILE) then
+    return false
+  end
+  local f = fs.open(STATE_FILE, "r")
+  local ok, data = pcall(textutils.unserialize, f.readAll())
+  f.close()
+  if not ok or type(data) ~= "table" then
+    return false
+  end
+  state = data
+  return true
+end
+
+------------------------
+-- PERIPHERALS
+------------------------
+
+local function getPeripherals()
+  return {
+    me = peripheral.wrap(ME_BRIDGE_SIDE),
+    cube = peripheral.wrap(ENERGY_CUBE_SIDE),
+    monitor = peripheral.find("monitor"),
+    speaker = peripheral.find("speaker"),
+  }
+end
+
+local peripherals = getPeripherals()
+
+------------------------
+-- ENERGY ESTIMATION
+------------------------
+
+local lastCubeEnergy = nil
+local lastEnergySample = now()
+local lastRate = 0
+
+local function sampleEnergy()
+  if not peripherals.cube then
+    return
+  end
+
+  local energy = peripherals.cube.getEnergy()
+  local max = peripherals.cube.getMaxEnergy()
+
+  if lastCubeEnergy then
+    local delta = energy - lastCubeEnergy
+    if energy > 0 and energy < max then
+      state.estimatedEnergy = math.max(0, state.estimatedEnergy + delta)
+      lastRate = delta
+    end
+  end
+
+  lastCubeEnergy = energy
+  lastEnergySample = now()
+end
+
+------------------------
+-- AE2 DATA
+------------------------
+
+local ae2 = {
+  lastUpdate = 0,
+  staleSince = nil,
+  items = {},
+  fluids = {},
+  usedItems = 0,
+  totalItems = 0,
+  usedFluids = 0,
+  totalFluids = 0,
+}
+
+local function refreshAE2()
+  if not peripherals.me or not peripherals.me.isOnline() then
+    return false
+  end
+
+  ae2.items = peripherals.me.getItems()
+  ae2.fluids = peripherals.me.getFluids()
+  ae2.usedItems = peripherals.me.getUsedItemStorage()
+  ae2.totalItems = peripherals.me.getTotalItemStorage()
+  ae2.usedFluids = peripherals.me.getUsedFluidStorage()
+  ae2.totalFluids = peripherals.me.getTotalFluidStorage()
+
+  ae2.lastUpdate = now()
+  ae2.staleSince = nil
+  return true
+end
+
+------------------------
+-- UI RENDERING
+------------------------
+
+local function clearMonitor()
+  peripherals.monitor.setBackgroundColor(colors.black)
+  peripherals.monitor.clear()
+end
+
+local function draw()
+  local mon = peripherals.monitor
+  if not mon then return end
+
+  clearMonitor()
+  mon.setCursorPos(1,1)
+  mon.setTextColor(colors.green)
+  mon.write("AE2 SYSTEM STATUS")
+
+  -- ENERGY
+  mon.setCursorPos(1,3)
+  mon.setTextColor(colors.white)
+  mon.write("Energy:")
+  mon.setCursorPos(1,4)
+  mon.write(autoscaleFE(state.estimatedEnergy))
+
+  if state.estimatedMaxEnergy > 0 then
+    local pct = state.estimatedEnergy / state.estimatedMaxEnergy
+    mon.setCursorPos(1,5)
+    mon.write(string.format("%.1f%%", pct * 100))
+  end
+
+  mon.setCursorPos(1,6)
+  mon.write("Rate: " .. autoscaleFE(lastRate) .. "/s")
+
+  -- ITEMS
+  mon.setCursorPos(1,8)
+  mon.setTextColor(colors.green)
+  mon.write("Items:")
+  mon.setCursorPos(1,9)
+  mon.setTextColor(colors.white)
+  mon.write(autoscaleItems(ae2.usedItems) .. " / " .. autoscaleItems(ae2.totalItems))
+
+  -- FLUIDS
+  mon.setCursorPos(1,11)
+  mon.setTextColor(colors.green)
+  mon.write("Fluids:")
+  mon.setCursorPos(1,12)
+  mon.setTextColor(colors.white)
+  mon.write(autoscaleBuckets(ae2.usedFluids) .. " / " .. autoscaleBuckets(ae2.totalFluids))
+
+  -- STALE WARNINGS
+  if ae2.staleSince then
+    mon.setCursorPos(1,14)
+    mon.setTextColor(colors.yellow)
+    mon.write("AE2 DATA STALE")
+  end
+end
+
+------------------------
+-- MAIN LOOP
+------------------------
+
+log("Program started")
+
+if not loadState() then
+  log("State file missing or corrupt")
+end
+
+local lastEnergyTick = now()
+local lastAE2Tick = now()
 
 while true do
-  local _, side, _, y = os.pullEvent("monitor_touch")
-  if side ~= peripheral.getName(mon) then goto continue end
+  local t = now()
 
-  if y <= h / 2 then
-    page = math.max(0, page - 1)
-  else
-    page = math.min(maxPage, page + 1)
+  if t - lastEnergyTick >= ENERGY_SAMPLE_INTERVAL then
+    sampleEnergy()
+    lastEnergyTick = t
+  end
+
+  if t - lastAE2Tick >= AE2_REFRESH_INTERVAL then
+    local ok = refreshAE2()
+    if not ok then
+      if not ae2.staleSince then
+        ae2.staleSince = t
+        log("AE2 went stale")
+      end
+    end
+    lastAE2Tick = t
   end
 
   draw()
-  ::continue::
+  saveState()
+  sleep(0.1)
 end
