@@ -1,0 +1,283 @@
+------------------------------------------------------------
+-- AE2_stats_display.lua
+-- v2.2
+------------------------------------------------------------
+
+------------------------
+-- VERSION
+------------------------
+
+local VERSION = "v2.2"
+
+------------------------
+-- CONFIG
+------------------------
+
+local ME_BRIDGE_SIDE = "right"
+local ENERGY_CUBE_SIDE = "top"
+
+local STATE_FILE = "state.dat"
+local LOG_DIR = "logs"
+
+local ENERGY_SAMPLE_INTERVAL = 1
+local AE2_REFRESH_INTERVAL = 3
+
+local TOP_ITEMS_COUNT = 8
+
+------------------------
+-- UTIL
+------------------------
+
+local function now()
+  return os.epoch("utc") / 1000
+end
+
+local function autoscaleFE(fe)
+  local u = {"FE","kFE","MFE","GFE","TFE"}
+  local i = 1
+  while fe >= 1000 and i < #u do
+    fe = fe / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", fe, u[i])
+end
+
+local function autoscaleItems(n)
+  local u = {"","k","M","G"}
+  local i = 1
+  while n >= 1000 and i < #u do
+    n = n / 1000
+    i = i + 1
+  end
+  return string.format("%.2f%s", n, u[i])
+end
+
+local function autoscaleBuckets(mb)
+  local b = mb / 1000
+  local u = {"B","kB","MB","GB","TB"}
+  local i = 1
+  while b >= 1000 and i < #u do
+    b = b / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", b, u[i])
+end
+
+------------------------
+-- LOGGING
+------------------------
+
+if not fs.exists(LOG_DIR) then
+  fs.makeDir(LOG_DIR)
+end
+
+local function log(msg)
+  local path = LOG_DIR .. "/" .. os.date("%Y-%m-%d") .. ".log"
+  local f = fs.open(path, "a")
+  f.writeLine(os.date("%H:%M:%S") .. " | " .. msg)
+  f.close()
+end
+
+------------------------
+-- STATE
+------------------------
+
+local state = {
+  estimatedEnergy = 0,
+  estimatedMaxEnergy = 1,
+}
+
+if fs.exists(STATE_FILE) then
+  local f = fs.open(STATE_FILE, "r")
+  local ok, data = pcall(textutils.unserialize, f.readAll())
+  f.close()
+  if ok and type(data) == "table" then
+    state = data
+  else
+    log("State file missing or corrupt")
+  end
+else
+  log("State file missing or corrupt")
+end
+
+------------------------
+-- PERIPHERALS
+------------------------
+
+local me = peripheral.wrap(ME_BRIDGE_SIDE)
+local cube = peripheral.wrap(ENERGY_CUBE_SIDE)
+local mon = peripheral.find("monitor")
+
+assert(mon, "No monitor found")
+
+mon.setTextScale(1)
+
+------------------------
+-- ENERGY
+------------------------
+
+local lastCubeEnergy
+local lastRate = 0
+
+local function sampleEnergy()
+  if not cube then return end
+
+  local e = cube.getEnergy()
+  local m = cube.getMaxEnergy()
+
+  if lastCubeEnergy and e > 0 and e < m then
+    local d = e - lastCubeEnergy
+    state.estimatedEnergy = math.max(0, state.estimatedEnergy + d)
+    lastRate = d
+  end
+
+  lastCubeEnergy = e
+end
+
+------------------------
+-- AE2 DATA
+------------------------
+
+local ae2 = {
+  items = {},
+  fluids = {},
+  usedItems = 0,
+  totalItems = 0,
+  usedFluids = 0,
+  totalFluids = 0,
+  staleSince = nil,
+}
+
+local function refreshAE2()
+  if not me or not me.isOnline() then
+    return false
+  end
+
+  ae2.items = me.getItems() or {}
+  ae2.fluids = me.getFluids() or {}
+
+  ae2.usedItems = me.getUsedItemStorage() or 0
+  ae2.totalItems = me.getTotalItemStorage() or 0
+  ae2.usedFluids = me.getUsedFluidStorage() or 0
+  ae2.totalFluids = me.getTotalFluidStorage() or 0
+
+  ae2.staleSince = nil
+  return true
+end
+
+------------------------
+-- SORT HELPERS
+------------------------
+
+local function topItems(list, n)
+  table.sort(list, function(a, b)
+    local aa = tonumber(a.count) or 0
+    local bb = tonumber(b.count) or 0
+    return aa > bb
+  end)
+
+  local out = {}
+  for i = 1, math.min(n, #list) do
+    out[i] = list[i]
+  end
+  return out
+end
+
+------------------------
+-- DRAW
+------------------------
+
+local function draw()
+  mon.setBackgroundColor(colors.black)
+  mon.clear()
+
+  local y = 1
+
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("AE2 SYSTEM STATUS (" .. VERSION .. ")")
+  y = y + 2
+
+  -- ENERGY
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write("Energy: " .. autoscaleFE(state.estimatedEnergy))
+  y = y + 1
+  mon.setCursorPos(1, y)
+  mon.write("Rate: " .. autoscaleFE(lastRate) .. "/s")
+  y = y + 2
+
+  -- ITEMS
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("Items")
+  y = y + 1
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write(autoscaleItems(ae2.usedItems) .. " / " .. autoscaleItems(ae2.totalItems))
+  y = y + 1
+
+  for _, item in ipairs(topItems(ae2.items, TOP_ITEMS_COUNT)) do
+    mon.setCursorPos(1, y)
+    mon.write(
+      string.sub(item.displayName or item.name or "?", 1, 20) ..
+      " " ..
+      autoscaleItems(item.count or 0)
+    )
+    y = y + 1
+  end
+
+  y = y + 1
+
+  -- FLUIDS
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("Fluids")
+  y = y + 1
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write(autoscaleBuckets(ae2.usedFluids) .. " / " .. autoscaleBuckets(ae2.totalFluids))
+  y = y + 1
+
+  for _, f in ipairs(ae2.fluids) do
+    mon.setCursorPos(1, y)
+    mon.write(
+      string.sub(f.displayName or f.name or "?", 1, 20) ..
+      " " ..
+      autoscaleBuckets(f.amount or 0)
+    )
+    y = y + 1
+    if y > 18 then break end
+  end
+end
+
+------------------------
+-- MAIN LOOP
+------------------------
+
+local lastEnergy = now()
+local lastAE2 = now()
+
+log("Program started " .. VERSION)
+
+while true do
+  local t = now()
+
+  if t - lastEnergy >= ENERGY_SAMPLE_INTERVAL then
+    sampleEnergy()
+    lastEnergy = t
+  end
+
+  if t - lastAE2 >= AE2_REFRESH_INTERVAL then
+    if not refreshAE2() and not ae2.staleSince then
+      ae2.staleSince = t
+      log("AE2 went stale")
+    end
+    lastAE2 = t
+  end
+
+  draw()
+  sleep(0.1)
+end
