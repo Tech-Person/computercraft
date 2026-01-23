@@ -1,7 +1,7 @@
 -- =================================================
--- ME Bridge Item List Viewer (Page Scroll)
--- Right-click = Page Down
--- Left-click  = Page Up
+-- ME Bridge Item List Viewer (Touch Paging)
+-- TOP half tap  = Page UP
+-- BOTTOM half   = Page DOWN
 -- =================================================
 
 local ME_SIDE = "right"
@@ -10,7 +10,6 @@ local me = peripheral.wrap(ME_SIDE)
 local mon = peripheral.find("monitor")
 if not mon then error("No monitor found") end
 
--- Big readable text
 mon.setTextScale(1.5)
 mon.setBackgroundColor(colors.black)
 mon.clear()
@@ -51,13 +50,14 @@ local scroll = 0
 
 local function drawScrollbar(total, visible, offset)
     local w, h = mon.getSize()
+    if total <= visible then return end
+
     local trackTop = 3
     local trackHeight = h - 3
 
-    if total <= visible then return end
-
     local barHeight = math.max(1, math.floor((visible / total) * trackHeight))
-    local barPos = math.floor((offset / (total - visible)) * (trackHeight - barHeight))
+    local maxOffset = total - visible
+    local barPos = math.floor((offset / maxOffset) * (trackHeight - barHeight))
 
     -- Track
     for y = trackTop, h - 1 do
@@ -87,8 +87,8 @@ local function draw()
     mon.write("ME ITEM LIST ("..#items.." items)")
 
     mon.setTextColor(colors.gray)
-    mon.setCursorPos(w - 22, 1)
-    mon.write("L=Up  R=Down  Q=Quit")
+    mon.setCursorPos(w - 24, 1)
+    mon.write("Tap TOP=Up  BOT=Down")
 
     -- Items
     for i = 1, rows do
@@ -114,35 +114,24 @@ end
 draw()
 
 -- ==============================
--- Input Loop
+-- Touch Loop
 -- ==============================
 
 while true do
-    local event, side, x, y = os.pullEvent()
+    local event, side, x, y = os.pullEvent("monitor_touch")
+    if side ~= peripheral.getName(mon) then goto continue end
 
     local _, h = mon.getSize()
     local page = h - 3
 
-    if event == "key" then
-        if side == keys.q then
-            mon.clear()
-            break
-        end
-
-    elseif event == "monitor_touch" then
-        -- Left click = page up
-        if side == peripheral.getName(mon) then
-            scroll = math.max(0, scroll - page)
-            draw()
-        end
-
-    elseif event == "mouse_click" then
-        local button = side
-
-        -- Right click = page down
-        if button == 2 then
-            scroll = math.min(#items - page, scroll + page)
-            draw()
-        end
+    if y <= h / 2 then
+        -- TOP HALF = Page Up
+        scroll = math.max(0, scroll - page)
+    else
+        -- BOTTOM HALF = Page Down
+        scroll = math.min(#items - page, scroll + page)
     end
+
+    draw()
+    ::continue::
 end
