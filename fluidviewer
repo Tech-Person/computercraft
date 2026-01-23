@@ -1,0 +1,33 @@
+-- ME Fluid Schema Viewer (single entry, monitor output)
+
+local BRIDGE_SIDE = "right"
+
+local mon = peripheral.find("monitor")
+assert(mon, "No monitor found")
+
+local me = peripheral.wrap(BRIDGE_SIDE)
+assert(me, "No ME Bridge on "..BRIDGE_SIDE)
+
+mon.setBackgroundColor(colors.black)
+mon.setTextColor(colors.white)
+mon.setTextScale(1)
+mon.clear()
+
+local fluids = me.getFluids()
+assert(fluids and #fluids > 0, "No fluids returned")
+
+local data = textutils.serialize(fluids[1])
+
+local w, h = mon.getSize()
+local y = 1
+
+mon.setCursorPos(1, y)
+mon.write("ME Bridge Fluid Schema (fluids[1])")
+y = y + 2
+
+for line in data:gmatch("[^\n]+") do
+  if y > h then break end
+  mon.setCursorPos(1, y)
+  mon.write(line)
+  y = y + 1
+end
