@@ -1,1 +1,6 @@
-print(textutils.serialize(peripheral.getMethods("top")))
+local f = fs.open("cube_methods.txt", "w")
+for _, m in ipairs(peripheral.getMethods("top")) do
+  f.writeLine(m)
+end
+f.close()
+print("saved")
