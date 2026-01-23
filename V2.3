@@ -1,0 +1,224 @@
+------------------------------------------------------------
+-- AE2_stats_display.lua
+-- v2.3
+------------------------------------------------------------
+
+------------------------
+-- VERSION
+------------------------
+
+local VERSION = "v2.3"
+
+------------------------
+-- CONFIG
+------------------------
+
+local ME_BRIDGE_SIDE = "right"
+local ENERGY_CUBE_SIDE = "top"
+
+local ENERGY_SAMPLE_INTERVAL = 1
+local AE2_REFRESH_INTERVAL = 3
+local TOP_ITEMS_COUNT = 8
+
+------------------------
+-- UTIL
+------------------------
+
+local function autoscaleFE(fe)
+  local u = {"FE","kFE","MFE","GFE","TFE"}
+  local i = 1
+  while fe >= 1000 and i < #u do
+    fe = fe / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", fe, u[i])
+end
+
+local function autoscaleItems(n)
+  local u = {"","k","M","G"}
+  local i = 1
+  while n >= 1000 and i < #u do
+    n = n / 1000
+    i = i + 1
+  end
+  return string.format("%.2f%s", n, u[i])
+end
+
+local function autoscaleBuckets(mb)
+  local b = mb / 1000
+  local u = {"B","kB","MB","GB","TB"}
+  local i = 1
+  while b >= 1000 and i < #u do
+    b = b / 1000
+    i = i + 1
+  end
+  return string.format("%.2f %s", b, u[i])
+end
+
+------------------------
+-- PERIPHERALS
+------------------------
+
+local me = peripheral.wrap(ME_BRIDGE_SIDE)
+local cube = peripheral.wrap(ENERGY_CUBE_SIDE)
+local mon = peripheral.find("monitor")
+
+assert(mon, "No monitor found")
+
+mon.setTextScale(1)
+
+------------------------
+-- ENERGY (estimation)
+------------------------
+
+local estimatedEnergy = 0
+local lastCubeEnergy
+local lastRate = 0
+
+local function sampleEnergy()
+  if not cube then return end
+
+  local e = cube.getEnergy()
+  local m = cube.getMaxEnergy()
+
+  if lastCubeEnergy and e > 0 and e < m then
+    local d = e - lastCubeEnergy
+    estimatedEnergy = math.max(0, estimatedEnergy + d)
+    lastRate = d
+  end
+
+  lastCubeEnergy = e
+end
+
+------------------------
+-- AE2 DATA
+------------------------
+
+local ae2 = {
+  items = {},
+  fluids = {},
+  usedItems = 0,
+  totalItems = 0,
+  usedFluids = 0,
+  totalFluids = 0,
+}
+
+local function refreshAE2()
+  if not me or not me.isOnline() then return false end
+
+  ae2.items = me.getItems() or {}
+  ae2.fluids = me.getFluids() or {}
+
+  ae2.usedItems = me.getUsedItemStorage() or 0
+  ae2.totalItems = me.getTotalItemStorage() or 0
+  ae2.usedFluids = me.getUsedFluidStorage() or 0
+  ae2.totalFluids = me.getTotalFluidStorage() or 0
+
+  return true
+end
+
+------------------------
+-- SORT HELPERS
+------------------------
+
+local function topItems(list, n)
+  table.sort(list, function(a, b)
+    return (a.count or 0) > (b.count or 0)
+  end)
+
+  local out = {}
+  for i = 1, math.min(n, #list) do
+    out[i] = list[i]
+  end
+  return out
+end
+
+------------------------
+-- DRAW
+------------------------
+
+local function draw()
+  mon.setBackgroundColor(colors.black)
+  mon.clear()
+  local y = 1
+
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("AE2 SYSTEM STATUS (" .. VERSION .. ")")
+  y = y + 2
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write("Energy: " .. autoscaleFE(estimatedEnergy))
+  y = y + 1
+  mon.setCursorPos(1, y)
+  mon.write("Rate: " .. autoscaleFE(lastRate) .. "/s")
+  y = y + 2
+
+  -- ITEMS
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("Items")
+  y = y + 1
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write(autoscaleItems(ae2.usedItems) .. " / " .. autoscaleItems(ae2.totalItems))
+  y = y + 1
+
+  for _, item in ipairs(topItems(ae2.items, TOP_ITEMS_COUNT)) do
+    mon.setCursorPos(1, y)
+    mon.write(
+      string.sub(item.displayName or item.name or "?", 1, 20) ..
+      " " .. autoscaleItems(item.count or 0)
+    )
+    y = y + 1
+  end
+
+  y = y + 1
+
+  -- FLUIDS
+  mon.setTextColor(colors.green)
+  mon.setCursorPos(1, y)
+  mon.write("Fluids")
+  y = y + 1
+
+  mon.setTextColor(colors.white)
+  mon.setCursorPos(1, y)
+  mon.write(autoscaleBuckets(ae2.usedFluids) .. " / " .. autoscaleBuckets(ae2.totalFluids))
+  y = y + 1
+
+  for _, f in ipairs(ae2.fluids) do
+    mon.setCursorPos(1, y)
+    mon.write(
+      string.sub(f.displayName or f.name or "?", 1, 20) ..
+      " " .. autoscaleBuckets(f.count or 0)
+    )
+    y = y + 1
+    if y > 18 then break end
+  end
+end
+
+------------------------
+-- MAIN LOOP
+------------------------
+
+local lastEnergyTick = os.clock()
+local lastAE2Tick = os.clock()
+
+while true do
+  local now = os.clock()
+
+  if now - lastEnergyTick >= ENERGY_SAMPLE_INTERVAL then
+    sampleEnergy()
+    lastEnergyTick = now
+  end
+
+  if now - lastAE2Tick >= AE2_REFRESH_INTERVAL then
+    refreshAE2()
+    lastAE2Tick = now
+  end
+
+  draw()
+  sleep(0.1)
+end
