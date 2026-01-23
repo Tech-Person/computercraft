@@ -1,6 +1,7 @@
 -- =================================================
--- ME Bridge Item List Viewer (Scrollable)
--- Full-screen monitor with scrollbar
+-- ME Bridge Item List Viewer (Page Scroll)
+-- Right-click = Page Down
+-- Left-click  = Page Up
 -- =================================================
 
 local ME_SIDE = "right"
@@ -9,7 +10,7 @@ local me = peripheral.wrap(ME_SIDE)
 local mon = peripheral.find("monitor")
 if not mon then error("No monitor found") end
 
--- Large readable text
+-- Big readable text
 mon.setTextScale(1.5)
 mon.setBackgroundColor(colors.black)
 mon.clear()
@@ -18,9 +19,9 @@ mon.clear()
 -- Helpers
 -- ==============================
 
-local function safeCall(name)
-    if type(me[name]) ~= "function" then return {} end
-    local ok, result = pcall(me[name])
+local function safeGetItems()
+    if type(me.getItems) ~= "function" then return {} end
+    local ok, result = pcall(me.getItems)
     if not ok or type(result) ~= "table" then return {} end
     return result
 end
@@ -37,7 +38,7 @@ end
 -- Load Items
 -- ==============================
 
-local items = safeCall("getItems")
+local items = safeGetItems()
 table.sort(items, function(a,b)
     return (a.name or "") < (b.name or "")
 end)
@@ -50,16 +51,23 @@ local scroll = 0
 
 local function drawScrollbar(total, visible, offset)
     local w, h = mon.getSize()
-    local barHeight = math.max(1, math.floor((visible / total) * (h - 3)))
-    local barPos = math.floor((offset / total) * (h - 3))
+    local trackTop = 3
+    local trackHeight = h - 3
 
-    for y = 3, h - 1 do
+    if total <= visible then return end
+
+    local barHeight = math.max(1, math.floor((visible / total) * trackHeight))
+    local barPos = math.floor((offset / (total - visible)) * (trackHeight - barHeight))
+
+    -- Track
+    for y = trackTop, h - 1 do
         mon.setCursorPos(w, y)
         mon.setBackgroundColor(colors.gray)
         mon.write(" ")
     end
 
-    for y = 3 + barPos, math.min(3 + barPos + barHeight, h - 1) do
+    -- Thumb
+    for y = trackTop + barPos, trackTop + barPos + barHeight do
         mon.setCursorPos(w, y)
         mon.setBackgroundColor(colors.white)
         mon.write(" ")
@@ -71,6 +79,7 @@ end
 local function draw()
     mon.clear()
     local w, h = mon.getSize()
+    local rows = h - 3
 
     -- Header
     mon.setTextColor(colors.yellow)
@@ -78,23 +87,21 @@ local function draw()
     mon.write("ME ITEM LIST ("..#items.." items)")
 
     mon.setTextColor(colors.gray)
-    mon.setCursorPos(w - 10, 1)
-    mon.write("Q = Quit")
+    mon.setCursorPos(w - 22, 1)
+    mon.write("L=Up  R=Down  Q=Quit")
 
-    -- Visible rows
-    local rows = h - 3
-
+    -- Items
     for i = 1, rows do
-        local idx = i + scroll
+        local idx = scroll + i
         if idx > #items then break end
 
         local item = items[idx]
-        local line = string.sub(item.name or "?", 1, w - 15)
+        local name = string.sub(item.name or "?", 1, w - 15)
         local amt = format(item.amount)
 
         mon.setTextColor(colors.white)
         mon.setCursorPos(2, i + 2)
-        mon.write(line)
+        mon.write(name)
 
         mon.setTextColor(colors.lightGray)
         mon.setCursorPos(w - #amt - 1, i + 2)
@@ -111,17 +118,31 @@ draw()
 -- ==============================
 
 while true do
-    local event, key = os.pullEvent("key")
+    local event, side, x, y = os.pullEvent()
 
-    if key == keys.q then
-        mon.clear()
-        break
-    elseif key == keys.up then
-        scroll = math.max(0, scroll - 1)
-        draw()
-    elseif key == keys.down then
-        local _, h = mon.getSize()
-        scroll = math.min(#items - (h - 3), scroll + 1)
-        draw()
+    local _, h = mon.getSize()
+    local page = h - 3
+
+    if event == "key" then
+        if side == keys.q then
+            mon.clear()
+            break
+        end
+
+    elseif event == "monitor_touch" then
+        -- Left click = page up
+        if side == peripheral.getName(mon) then
+            scroll = math.max(0, scroll - page)
+            draw()
+        end
+
+    elseif event == "mouse_click" then
+        local button = side
+
+        -- Right click = page down
+        if button == 2 then
+            scroll = math.min(#items - page, scroll + page)
+            draw()
+        end
     end
 end
