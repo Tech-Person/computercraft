@@ -1,7 +1,13 @@
 ------------------------------------------------------------
 -- AE2_stats_display.lua
--- v2: Adds AE2 item + fluid lists (no scrolling yet)
+-- v2
 ------------------------------------------------------------
+
+------------------------
+-- VERSION
+------------------------
+
+local VERSION = "v2"
 
 ------------------------
 -- CONFIG
@@ -160,24 +166,29 @@ local function draw()
   local y = 1
 
   mon.setTextColor(colors.green)
-  mon.setCursorPos(1,y) mon.write("AE2 SYSTEM STATUS")
+  mon.setCursorPos(1,y)
+  mon.write("AE2 SYSTEM STATUS ("..VERSION..")")
   y=y+2
 
   -- ENERGY
   mon.setTextColor(colors.white)
-  mon.setCursorPos(1,y) mon.write("Energy: "..autoscaleFE(state.estimatedEnergy))
+  mon.setCursorPos(1,y)
+  mon.write("Energy: "..autoscaleFE(state.estimatedEnergy))
   y=y+1
-  mon.setCursorPos(1,y) mon.write("Rate: "..autoscaleFE(lastRate).."/s")
+  mon.setCursorPos(1,y)
+  mon.write("Rate: "..autoscaleFE(lastRate).."/s")
   y=y+2
 
   -- ITEMS
   mon.setTextColor(colors.green)
-  mon.setCursorPos(1,y) mon.write("Items")
+  mon.setCursorPos(1,y)
+  mon.write("Items")
   y=y+1
 
   if ae2.staleSince then
     mon.setTextColor(colors.yellow)
-    mon.setCursorPos(1,y) mon.write("STALE DATA")
+    mon.setCursorPos(1,y)
+    mon.write("STALE DATA")
     y=y+1
   end
 
@@ -196,12 +207,14 @@ local function draw()
 
   -- FLUIDS
   mon.setTextColor(colors.green)
-  mon.setCursorPos(1,y) mon.write("Fluids")
+  mon.setCursorPos(1,y)
+  mon.write("Fluids")
   y=y+1
 
   if ae2.staleSince then
     mon.setTextColor(colors.yellow)
-    mon.setCursorPos(1,y) mon.write("STALE DATA")
+    mon.setCursorPos(1,y)
+    mon.write("STALE DATA")
     y=y+1
   end
 
@@ -225,7 +238,7 @@ end
 local lastEnergy = now()
 local lastAE2 = now()
 
-log("Program started")
+log("Program started "..VERSION)
 
 while true do
   local t = now()
