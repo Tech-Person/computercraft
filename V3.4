@@ -166,6 +166,7 @@ end
 ------------------------
 
 local function updateScroll(name,list)
+print(name, "offset", s.offset, "list", #list)
   local s=scroll[name]
   local t=nowSec()
   local visible=H-(HEADER_LINES+1)
