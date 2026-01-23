@@ -1,11 +1,11 @@
 -- =================================================
--- ME Bridge Item List Viewer (AUTO SCROLL)
--- Full-screen, smooth scrolling
+-- ME Bridge Item Viewer
+-- AUTO SCROLL + SEARCH
 -- =================================================
 
 local ME_SIDE = "right"
-local SCROLL_DELAY = 0.15   -- speed (lower = faster)
-local END_PAUSE = 2         -- seconds to pause at top/bottom
+local SCROLL_DELAY = 0.15
+local END_PAUSE = 2
 
 local me = peripheral.wrap(ME_SIDE)
 local mon = peripheral.find("monitor")
@@ -35,40 +35,62 @@ local function format(n)
 end
 
 -- ==============================
--- Load Items
+-- Data
 -- ==============================
 
-local items = safeGetItems()
-table.sort(items, function(a,b)
+local allItems = safeGetItems()
+table.sort(allItems, function(a,b)
     return (a.name or "") < (b.name or "")
 end)
 
+local items = allItems
+local search = ""
+local searching = false
+
 local scroll = 0
-local direction = 1 -- 1 = down, -1 = up
+local direction = 1
 
 -- ==============================
--- Draw Functions
+-- Filtering
+-- ==============================
+
+local function applyFilter()
+    if search == "" then
+        items = allItems
+    else
+        local s = string.lower(search)
+        items = {}
+        for _, item in ipairs(allItems) do
+            local name = string.lower(item.name or "")
+            if string.find(name, s, 1, true) then
+                table.insert(items, item)
+            end
+        end
+    end
+    scroll = 0
+    direction = 1
+end
+
+-- ==============================
+-- Drawing
 -- ==============================
 
 local function drawScrollbar(total, visible, offset)
     local w, h = mon.getSize()
     if total <= visible then return end
 
-    local trackTop = 3
-    local trackHeight = h - 3
-
+    local trackTop = 4
+    local trackHeight = h - 4
     local barHeight = math.max(1, math.floor((visible / total) * trackHeight))
     local maxOffset = total - visible
     local barPos = math.floor((offset / maxOffset) * (trackHeight - barHeight))
 
-    -- Track
-    for y = trackTop, h - 1 do
+    for y = trackTop, h do
         mon.setCursorPos(w, y)
         mon.setBackgroundColor(colors.gray)
         mon.write(" ")
     end
 
-    -- Thumb
     for y = trackTop + barPos, trackTop + barPos + barHeight do
         mon.setCursorPos(w, y)
         mon.setBackgroundColor(colors.white)
@@ -81,12 +103,20 @@ end
 local function draw()
     mon.clear()
     local w, h = mon.getSize()
-    local rows = h - 3
+    local rows = h - 4
 
     -- Header
     mon.setTextColor(colors.yellow)
     mon.setCursorPos(2, 1)
-    mon.write("ME ITEM LIST ("..#items.." items)")
+    mon.write("ME ITEM LIST ("..#items.." shown)")
+
+    -- Search bar
+    mon.setTextColor(colors.cyan)
+    mon.setCursorPos(2, 2)
+    mon.write("Search: ")
+
+    mon.setTextColor(searching and colors.yellow or colors.white)
+    mon.write(search ~= "" and search or "<press />")
 
     -- Items
     for i = 1, rows do
@@ -98,11 +128,11 @@ local function draw()
         local amt = format(item.amount)
 
         mon.setTextColor(colors.white)
-        mon.setCursorPos(2, i + 2)
+        mon.setCursorPos(2, i + 3)
         mon.write(name)
 
         mon.setTextColor(colors.lightGray)
-        mon.setCursorPos(w - #amt - 1, i + 2)
+        mon.setCursorPos(w - #amt - 1, i + 3)
         mon.write(amt)
     end
 
@@ -110,27 +140,50 @@ local function draw()
 end
 
 -- ==============================
--- AUTO SCROLL LOOP
+-- Input + Auto Scroll Loop
 -- ==============================
 
 while true do
     draw()
-    sleep(SCROLL_DELAY)
 
-    local _, h = mon.getSize()
-    local page = h - 3
-    local maxScroll = math.max(0, #items - page)
+    local timer = os.startTimer(SCROLL_DELAY)
+    local event, p1 = os.pullEvent()
 
-    scroll = scroll + direction
+    if event == "timer" and p1 == timer and not searching then
+        local _, h = mon.getSize()
+        local page = h - 4
+        local maxScroll = math.max(0, #items - page)
 
-    -- Pause & reverse at ends
-    if scroll >= maxScroll then
-        scroll = maxScroll
-        sleep(END_PAUSE)
-        direction = -1
-    elseif scroll <= 0 then
-        scroll = 0
-        sleep(END_PAUSE)
-        direction = 1
+        scroll = scroll + direction
+
+        if scroll >= maxScroll then
+            scroll = maxScroll
+            sleep(END_PAUSE)
+            direction = -1
+        elseif scroll <= 0 then
+            scroll = 0
+            sleep(END_PAUSE)
+            direction = 1
+        end
+
+    elseif event == "char" and searching then
+        search = search .. p1
+
+    elseif event == "key" then
+        if p1 == keys.slash then
+            searching = true
+
+        elseif p1 == keys.enter and searching then
+            searching = false
+            applyFilter()
+
+        elseif p1 == keys.backspace and searching then
+            search = search:sub(1, -2)
+
+        elseif p1 == keys.escape then
+            search = ""
+            searching = false
+            applyFilter()
+        end
     end
 end
