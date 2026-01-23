@@ -1,3 +1,3 @@
-local p = peripheral.wrap("<side>")
-print(peripheral.getType("<side>"))
-print(textutils.serialize(peripheral.getMethods("<side>")))
+local p = peripheral.wrap("top")
+print(peripheral.getType("top"))
+print(textutils.serialize(peripheral.getMethods("top")))
