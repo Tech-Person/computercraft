@@ -1,0 +1,43 @@
+-- =========================================
+-- ME Cell Raw Data Dumper
+-- Writes all cell data to a text file
+-- =========================================
+
+local ME_SIDE = "right"
+local OUTPUT_FILE = "cell_dump.txt"
+
+local me = peripheral.wrap(ME_SIDE)
+if not me then error("ME bridge not found on "..ME_SIDE) end
+
+local cells = me.getCells()
+if type(cells) ~= "table" then
+    error("getCells() did not return a table")
+end
+
+local file = fs.open(OUTPUT_FILE, "w")
+if not file then
+    error("Unable to open "..OUTPUT_FILE.." for writing")
+end
+
+file.writeLine("ME CELL DATA DUMP")
+file.writeLine("Total cells: "..#cells)
+file.writeLine("")
+
+for i, cell in ipairs(cells) do
+    file.writeLine("========================================")
+    file.writeLine("Cell #" .. i)
+
+    for k, v in pairs(cell) do
+        local t = type(v)
+        if t == "number" or t == "string" or t == "boolean" then
+            file.writeLine(string.format("  %s = %s", k, tostring(v)))
+        end
+    end
+
+    file.writeLine("")
+end
+
+file.writeLine("END OF DUMP")
+file.close()
+
+print("Cell data written to "..OUTPUT_FILE)
