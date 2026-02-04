@@ -4,8 +4,8 @@
 local reactorSide = "back"
 local outputGateSide = "top"
 
--- NAME of the modem-connected flow gate (IMPORTANT)
-local INPUT_GATE_NAME = "flow_gate_1"  -- CHANGE THIS IF NEEDED
+-- MODEM-CONNECTED INPUT FLOW GATE NAME
+local INPUT_GATE_NAME = "flow_gate_1" -- CHANGE IF NEEDED
 
 local targetStrength = 50
 local maxTemperature = 8000
@@ -23,15 +23,15 @@ local curInputGate = 222000
 
 local monitor = f.periphSearch("monitor")
 local reactor = peripheral.wrap(reactorSide)
-local fluxgate = peripheral.wrap(outputGateSide)           -- output gate (local)
-local inputfluxgate = peripheral.wrap(INPUT_GATE_NAME)     -- input gate (MODEM)
+local fluxgate = peripheral.wrap(outputGateSide)
+local inputfluxgate = peripheral.wrap(INPUT_GATE_NAME)
 
 if not monitor then error("No monitor found") end
 if not reactor then error("No reactor found") end
 if not fluxgate then error("No output gate found") end
-if not inputfluxgate then error("Modem flow gate not found: "..INPUT_GATE_NAME) end
+if not inputfluxgate then error("Input gate not found: "..INPUT_GATE_NAME) end
 
--- FORCE OVERRIDE MODE (matches working test)
+-- FORCE OVERRIDE MODE (CRITICAL)
 fluxgate.setOverrideEnabled(true)
 inputfluxgate.setOverrideEnabled(true)
 
@@ -47,7 +47,18 @@ local emergencyTemp = false
 local ri
 
 local gateStatus = { input = "UNKNOWN", output = "UNKNOWN" }
-local last = {}
+
+-- DIRTY CACHE (INITIALIZED!)
+local last = {
+  status = false,
+  generation = false,
+  temperature = false,
+  energy = false,
+  field = false,
+  fuel = false,
+  inGate = false,
+  outGate = false,
+}
 
 -- =====================
 -- UI STATIC
@@ -122,12 +133,76 @@ local function update()
     ri = reactor.getReactorInfo()
     if not ri then error("Invalid reactor setup") end
 
+    -- =====================
+    -- DRAW REACTOR VALUES
+    -- =====================
+    if ri.status ~= last.status then
+      local c =
+        (ri.status == "online" or ri.status == "charged") and colors.green or
+        (ri.status == "charging") and colors.orange or
+        colors.red
+
+      f.draw_text(mon, 18, 2, string.upper(ri.status), colors.white, c)
+      last.status = ri.status
+    end
+
+    if ri.generationRate ~= last.generation then
+      f.draw_text(mon, 18, 4,
+        f.format_int(ri.generationRate) .. " rf/t",
+        colors.lime, colors.black)
+      last.generation = ri.generationRate
+    end
+
+    if ri.temperature ~= last.temperature then
+      local tc =
+        ri.temperature <= 5000 and colors.green or
+        ri.temperature <= 6500 and colors.orange or
+        colors.red
+
+      f.draw_text(mon, 18, 6,
+        f.format_int(ri.temperature) .. "C",
+        colors.white, tc)
+      last.temperature = ri.temperature
+    end
+
+    -- =====================
+    -- PROGRESS BARS
+    -- =====================
+    local satPercent =
+      math.ceil(ri.energySaturation / ri.maxEnergySaturation * 10000) * 0.01
+    if satPercent ~= last.energy then
+      f.progress_bar(mon, 2, 12, mon.X - 2, satPercent, 100,
+        colors.blue, colors.gray)
+      last.energy = satPercent
+    end
+
     local fieldPercent =
       math.ceil(ri.fieldStrength / ri.maxFieldStrength * 10000) * 0.01
+    local fc =
+      fieldPercent >= 50 and colors.green or
+      fieldPercent > 30 and colors.orange or
+      colors.red
+    if fieldPercent ~= last.field then
+      f.progress_bar(mon, 2, 15, mon.X - 2, fieldPercent, 100,
+        fc, colors.gray)
+      last.field = fieldPercent
+    end
+
     local fuelPercent =
       100 - math.ceil(ri.fuelConversion / ri.maxFuelConversion * 10000) * 0.01
+    local fu =
+      fuelPercent >= 70 and colors.green or
+      fuelPercent > 30 and colors.orange or
+      colors.red
+    if fuelPercent ~= last.fuel then
+      f.progress_bar(mon, 2, 18, mon.X - 2, fuelPercent, 100,
+        fu, colors.gray)
+      last.fuel = fuelPercent
+    end
 
-    -- INPUT GATE AUTO CONTROL (MATCHES TEST SCRIPT)
+    -- =====================
+    -- INPUT GATE AUTO CONTROL (OVERRIDE ONLY)
+    -- =====================
     if ri.status == "online" then
       if autoInputGate == 1 then
         local flow = ri.fieldDrainRate / (1 - targetStrength / 100)
@@ -137,8 +212,10 @@ local function update()
       end
     end
 
-    -- DIAGNOSTICS
-    gateStatus.input  = inputfluxgate.getFlow()  > 0 and "OK" or "STALLED"
+    -- =====================
+    -- GATE DIAGNOSTICS
+    -- =====================
+    gateStatus.input  = inputfluxgate.getFlow() > 0 and "OK" or "STALLED"
     gateStatus.output = fluxgate.getFlow() > 0 and "OK" or "STALLED"
 
     if gateStatus.input ~= last.inGate or gateStatus.output ~= last.outGate then
@@ -151,7 +228,9 @@ local function update()
       last.outGate = gateStatus.output
     end
 
+    -- =====================
     -- SAFETIES
+    -- =====================
     if fuelPercent <= 10 then
       reactor.stopReactor()
       action = "Fuel below 10%"
