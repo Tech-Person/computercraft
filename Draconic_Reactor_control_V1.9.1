@@ -58,6 +58,7 @@ local last = {
   fuel = false,
   inGate = false,
   outGate = false,
+  autoMode = false,
 }
 
 -- =====================
@@ -199,6 +200,19 @@ local function update()
         fu, colors.gray)
       last.fuel = fuelPercent
     end
+-- =====================
+-- INPUT MODE INDICATOR (AU / MA)
+-- =====================
+if autoInputGate ~= last.autoMode then
+  f.draw_text(
+    mon,
+    14, 10,                           -- same position your button handler expects
+    autoInputGate == 1 and "AU" or "MA",
+    colors.white,
+    colors.gray
+  )
+  last.autoMode = autoInputGate
+end
 
     -- =====================
     -- INPUT GATE AUTO CONTROL (OVERRIDE ONLY)
