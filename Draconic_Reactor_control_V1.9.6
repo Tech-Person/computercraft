@@ -183,11 +183,14 @@ end
 local function update()
   while true do
     ri = reactor.getReactorInfo()
+
+    -- If reactor data is temporarily unavailable, skip this tick safely
+    if not ri then
+      sleep(0.1)
+    else
+
     if not ri then error("Invalid reactor setup") end
 ri = reactor.getReactorInfo()
-if not ri then
-  sleep(0.1)
-  goto continue
 end
 
     -- =====================
