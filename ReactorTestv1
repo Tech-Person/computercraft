@@ -1,0 +1,10 @@
+local gate = peripheral.wrap("flow_gate_1")
+
+gate.setOverrideEnabled(true)
+
+for i = 1, 10 do
+  local v = i * 10000
+  gate.setFlowOverride(v)
+  print("Set:", v, "Actual:", gate.getFlow())
+  sleep(1)
+end
