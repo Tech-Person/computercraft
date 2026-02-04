@@ -1,0 +1,85 @@
+-- =====================
+-- STABLE DEBUG UI VERSION
+-- =====================
+
+local reactorSide = "back"
+local outputGateSide = "top"
+local INPUT_GATE_NAME = "flow_gate_1"
+
+local targetStrength = 50
+
+os.loadAPI("lib/f")
+
+local autoInputGate = true
+local curInputGate = 200000
+
+local monitor = f.periphSearch("monitor")
+local reactor = peripheral.wrap(reactorSide)
+local outGate = peripheral.wrap(outputGateSide)
+local inGate = peripheral.wrap(INPUT_GATE_NAME)
+
+assert(monitor, "No monitor")
+assert(reactor, "No reactor")
+assert(outGate, "No output gate")
+assert(inGate, "No input gate")
+
+outGate.setOverrideEnabled(true)
+inGate.setOverrideEnabled(true)
+
+local w, h = monitor.getSize()
+local mon = { monitor = monitor, X = w, Y = h }
+
+-- =====================
+-- BUTTONS
+-- =====================
+local function buttons()
+  while true do
+    local _, _, x, y = os.pullEvent("monitor_touch")
+
+    if y == 10 and (x == 14 or x == 15) then
+      autoInputGate = not autoInputGate
+    end
+
+    if not autoInputGate and y == 10 then
+      if x <= 4 then curInputGate = curInputGate - 10000
+      elseif x >= 25 then curInputGate = curInputGate + 10000 end
+      inGate.setFlowOverride(math.max(curInputGate, 0))
+    end
+  end
+end
+
+-- =====================
+-- MAIN LOOP (NO DIRTY CACHE)
+-- =====================
+local function update()
+  while true do
+    f.clear(mon)
+
+    f.draw_text(mon, 2, 2, "Reactor Status", colors.white, colors.black)
+    f.draw_text(mon, 2, 4, "Input Gate", colors.white, colors.black)
+    f.draw_text(mon, 2, 6, "Output Gate", colors.white, colors.black)
+
+    local ri = reactor.getReactorInfo()
+    local status = ri and ri.status or "NO DATA"
+
+    f.draw_text(mon, 18, 2, status, colors.white, colors.gray)
+
+    local inputDisplay
+    if autoInputGate and ri then
+      inputDisplay = math.floor(ri.fieldDrainRate / (1 - targetStrength / 100))
+      inGate.setFlowOverride(inputDisplay)
+    else
+      inputDisplay = curInputGate
+    end
+
+    f.draw_text(mon, 18, 4, inputDisplay .. " rf/t", colors.lime, colors.black)
+    f.draw_text(mon, 18, 6, outGate.getFlow() .. " rf/t", colors.orange, colors.black)
+
+    f.draw_text(mon, 14, 10, autoInputGate and "AU" or "MA", colors.white, colors.gray)
+    f.draw_text(mon, 2, 10, "<        >", colors.white, colors.gray)
+
+    sleep(0.2)
+  end
+end
+
+parallel.waitForAny(buttons, update)
