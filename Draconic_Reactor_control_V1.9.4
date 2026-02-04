@@ -107,17 +107,35 @@ if outputFlow ~= last.outputFlow then
   last.outputFlow = outputFlow
 end
 
-local inputFlow = inputfluxgate.getFlow()
-if inputFlow ~= last.inputFlow then
+-- =====================
+-- INPUT FLOW DISPLAY (TARGET-BASED)
+-- =====================
+local displayInputFlow
+
+if autoInputGate == 1 then
+  -- AUTO: show computed target
+  displayInputFlow = math.floor(
+    ri.fieldDrainRate / (1 - targetStrength / 100)
+  )
+else
+  -- MANUAL: show user-selected value
+  displayInputFlow = curInputGate
+end
+
+if displayInputFlow ~= last.inputFlow then
   f.draw_text(
     mon,
-    18, 9,  -- same line as "Input Gate"
-    f.format_int(inputFlow) .. " rf/t",
+    18, 9,
+    f.format_int(displayInputFlow) .. " rf/t",
     colors.blue,
     colors.black
   )
-  last.inputFlow = inputFlow
+  last.inputFlow = displayInputFlow
 end
+
+-- OPTIONAL: actual gate flow (debug)
+local actual = inputfluxgate.getFlow()
+f.draw_text(mon, 30, 9, "(" .. f.format_int(actual) .. ")", colors.gray, colors.black)
 
 -- =====================
 -- BUTTON HANDLER
