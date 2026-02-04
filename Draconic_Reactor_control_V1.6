@@ -33,6 +33,10 @@ if not inputfluxgate then error("No input flow gate found") end
 local monX, monY = monitor.getSize()
 local mon = { monitor = monitor, X = monX, Y = monY }
 
+-- CC take control of flux gates
+inputfluxgate.setOverrideEnabled(true)
+fluxgate.setOverrideEnabled(true)
+
 -- =====================
 -- STATE
 -- =====================
