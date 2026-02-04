@@ -1,0 +1,196 @@
+-- =====================
+-- USER CONFIG
+-- =====================
+local reactorSide = "back"
+local outputGateSide = "top"
+local inputGateSide  = "left"
+
+local targetStrength = 50
+local maxTemperature = 8000
+local safeTemperature = 3000
+local lowestFieldPercent = 15
+local activateOnCharged = 1
+
+-- =====================
+-- SYSTEM SETUP
+-- =====================
+os.loadAPI("lib/f")
+
+local autoInputGate = 1
+local curInputGate = 222000
+
+local monitor = f.periphSearch("monitor")
+local reactor = peripheral.wrap(reactorSide)
+local fluxgate = peripheral.wrap(outputGateSide)     -- output
+local inputfluxgate = peripheral.wrap(inputGateSide) -- input
+
+if not monitor then error("No monitor found") end
+if not reactor then error("No reactor found") end
+if not fluxgate then error("No output gate found") end
+if not inputfluxgate then error("No input gate found") end
+
+-- REQUIRED: enable override mode
+fluxgate.setOverrideEnabled(true)
+inputfluxgate.setOverrideEnabled(true)
+
+local monX, monY = monitor.getSize()
+local mon = { monitor = monitor, X = monX, Y = monY }
+
+-- =====================
+-- STATE
+-- =====================
+local action = "None since reboot"
+local emergencyCharge = false
+local emergencyTemp = false
+local ri
+
+-- gate diagnostics
+local gateStatus = {
+  input = "UNKNOWN",
+  output = "UNKNOWN"
+}
+
+-- dirty draw cache
+local last = {}
+
+-- =====================
+-- UI STATIC
+-- =====================
+local function drawButtons(y)
+  f.draw_text(mon, 2, y, " < ", colors.white, colors.gray)
+  f.draw_text(mon, 6, y, " <<", colors.white, colors.gray)
+  f.draw_text(mon, 10, y, "<<<", colors.white, colors.gray)
+  f.draw_text(mon, 17, y, ">>>", colors.white, colors.gray)
+  f.draw_text(mon, 21, y, ">> ", colors.white, colors.gray)
+  f.draw_text(mon, 25, y, " > ", colors.white, colors.gray)
+end
+
+local function drawStaticUI()
+  f.clear(mon)
+  f.draw_text(mon, 2, 2, "Reactor Status", colors.white, colors.black)
+  f.draw_text(mon, 2, 4, "Generation", colors.white, colors.black)
+  f.draw_text(mon, 2, 6, "Temperature", colors.white, colors.black)
+  f.draw_text(mon, 2, 7, "Output Gate", colors.white, colors.black)
+  drawButtons(8)
+  f.draw_text(mon, 2, 9, "Input Gate", colors.white, colors.black)
+  f.draw_text(mon, 2, 11, "Energy Saturation", colors.white, colors.black)
+  f.draw_text(mon, 2, 14, "Field Strength", colors.white, colors.black)
+  f.draw_text(mon, 2, 17, "Fuel", colors.white, colors.black)
+  f.draw_text(mon, 2, 19, "Action", colors.gray, colors.black)
+  f.draw_text(mon, 2, 20, "Gate Status", colors.gray, colors.black)
+end
+
+drawStaticUI()
+
+-- =====================
+-- BUTTON HANDLER
+-- =====================
+local function buttons()
+  while true do
+    local _, _, x, y = os.pullEvent("monitor_touch")
+
+    if y == 8 then
+      local v = fluxgate.getSignalLowFlow()
+      if x <= 4 then v = v - 1000
+      elseif x <= 9 then v = v - 10000
+      elseif x <= 12 then v = v - 100000
+      elseif x >= 25 then v = v + 1000
+      elseif x >= 21 then v = v + 10000
+      elseif x >= 17 then v = v + 100000 end
+      fluxgate.setSignalLowFlow(v)
+    end
+
+    if y == 10 and autoInputGate == 0 and x ~= 14 and x ~= 15 then
+      if x <= 4 then curInputGate = curInputGate - 1000
+      elseif x <= 9 then curInputGate = curInputGate - 10000
+      elseif x <= 12 then curInputGate = curInputGate - 100000
+      elseif x >= 25 then curInputGate = curInputGate + 1000
+      elseif x >= 21 then curInputGate = curInputGate + 10000
+      elseif x >= 17 then curInputGate = curInputGate + 100000 end
+      inputfluxgate.setFlowOverride(curInputGate)
+    end
+
+    if y == 10 and (x == 14 or x == 15) then
+      autoInputGate = autoInputGate == 1 and 0 or 1
+    end
+  end
+end
+
+-- =====================
+-- MAIN LOOP
+-- =====================
+local function update()
+  while true do
+    ri = reactor.getReactorInfo()
+    if not ri then error("Invalid reactor setup") end
+
+    -- === LOGIC VALUES ===
+    local satPercent =
+      math.ceil(ri.energySaturation / ri.maxEnergySaturation * 10000) * 0.01
+    local fieldPercent =
+      math.ceil(ri.fieldStrength / ri.maxFieldStrength * 10000) * 0.01
+    local fuelPercent =
+      100 - math.ceil(ri.fuelConversion / ri.maxFuelConversion * 10000) * 0.01
+
+    -- === INPUT FLOW CONTROL (DIRECT OVERRIDE) ===
+    if ri.status == "online" then
+      if autoInputGate == 1 then
+        local flow = ri.fieldDrainRate / (1 - targetStrength / 100)
+        inputfluxgate.setFlowOverride(flow)
+      else
+        inputfluxgate.setFlowOverride(curInputGate)
+      end
+    end
+
+    -- === OUTPUT FLOW CONTROL (SIGNAL MODE) ===
+    fluxgate.setOverrideEnabled(true)
+
+    -- === DIAGNOSTICS ===
+    local inFlow  = inputfluxgate.getFlow()
+    local outFlow = fluxgate.getFlow()
+
+    gateStatus.input  = inFlow  > 0 and "OK" or "STALLED"
+    gateStatus.output = outFlow > 0 and "OK" or "STALLED"
+
+    -- === AUTO RECOVERY ===
+    if gateStatus.input == "STALLED" then
+      inputfluxgate.setOverrideEnabled(true)
+    end
+    if gateStatus.output == "STALLED" then
+      fluxgate.setOverrideEnabled(true)
+    end
+
+    -- === DRAW (DIRTY) ===
+    if gateStatus.input ~= last.inGate or gateStatus.output ~= last.outGate then
+      f.draw_text(mon, 18, 20,
+        "IN:" .. gateStatus.input .. "  OUT:" .. gateStatus.output,
+        colors.white,
+        (gateStatus.input == "OK" and gateStatus.output == "OK")
+          and colors.green or colors.red)
+      last.inGate = gateStatus.input
+      last.outGate = gateStatus.output
+    end
+
+    if fuelPercent <= 10 then
+      reactor.stopReactor()
+      action = "Fuel below 10%"
+    end
+
+    if fieldPercent <= lowestFieldPercent and ri.status == "online" then
+      reactor.stopReactor()
+      reactor.chargeReactor()
+      emergencyCharge = true
+      action = "Field Strength Low"
+    end
+
+    if ri.temperature > maxTemperature then
+      reactor.stopReactor()
+      emergencyTemp = true
+      action = "Temperature High"
+    end
+
+    sleep(0.1)
+  end
+end
+
+parallel.waitForAny(buttons, update)
