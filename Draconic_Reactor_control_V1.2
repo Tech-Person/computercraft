@@ -28,6 +28,10 @@ local inputfluxgate
 -- reactor information
 local ri
 
+-- screen refresh control
+local lastDraw = 0
+local drawInterval = 0.5 -- seconds
+
 -- last performed action
 local action = "None since reboot"
 local emergencyCharge = false
@@ -143,9 +147,16 @@ function drawButtons(y)
 end
 
 function update()
-  while true do 
-    f.clear(mon)
+while true do
+  local now = os.clock()
+  local doDraw = false
 
+  if now - lastDraw >= drawInterval then
+    doDraw = true
+    lastDraw = now
+  end
+
+  
     ri = reactor.getReactorInfo()
     if ri == nil then
       error("reactor has an invalid setup")
@@ -165,6 +176,8 @@ function update()
     elseif ri.status == "charging" then
       statusColor = colors.orange
     end
+if doDraw then
+  f.clear(mon)
 
     f.draw_text_lr(mon, 2, 2, 1, "Reactor Status", string.upper(ri.status), colors.white, statusColor, colors.black)
     f.draw_text_lr(mon, 2, 4, 1, "Generation", f.format_int(ri.generationRate) .. " rf/t", colors.white, colors.lime, colors.black)
@@ -206,6 +219,7 @@ function update()
     f.progress_bar(mon, 2, 18, mon.X-2, fuelPercent, 100, fuelColor, colors.gray)
 
     f.draw_text_lr(mon, 2, 19, 1, "Action", action, colors.gray, colors.gray, colors.black)
+end -- doDraw
 
     if emergencyCharge then reactor.chargeReactor() end
 
