@@ -1,0 +1,7 @@
+local g = peripheral.wrap("flow_gate_1")
+
+g.setOverrideEnabled(true)
+g.setFlowOverride(50000)
+
+sleep(1)
+print("Flow:", g.getFlow())
