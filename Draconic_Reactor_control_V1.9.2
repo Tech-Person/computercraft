@@ -213,18 +213,23 @@ if autoInputGate ~= last.autoMode then
   )
   last.autoMode = autoInputGate
 end
+-- =====================
+-- INPUT GATE MANUAL BUTTONS
+-- =====================
+if autoInputGate == 0 then
+  drawButtons(10) -- same style as output gate
+end
 
-    -- =====================
-    -- INPUT GATE AUTO CONTROL (OVERRIDE ONLY)
-    -- =====================
-    if ri.status == "online" then
-      if autoInputGate == 1 then
-        local flow = ri.fieldDrainRate / (1 - targetStrength / 100)
-        inputfluxgate.setFlowOverride(flow)
-      else
-        inputfluxgate.setFlowOverride(curInputGate)
-      end
-    end
+-- =====================
+-- INPUT GATE CONTROL
+-- =====================
+if ri.status == "online" and autoInputGate == 1 then
+  -- AUTO MODE ONLY
+  local flow = ri.fieldDrainRate / (1 - targetStrength / 100)
+  inputfluxgate.setFlowOverride(flow)
+end
+-- MANUAL MODE: gate is controlled ONLY by button presses
+
 
     -- =====================
     -- GATE DIAGNOSTICS
