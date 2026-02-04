@@ -108,17 +108,21 @@ if outputFlow ~= last.outputFlow then
 end
 
 -- =====================
--- INPUT FLOW DISPLAY (TARGET-BASED)
+-- INPUT FLOW DISPLAY (SAFE)
 -- =====================
-local displayInputFlow
+local displayInputFlow = 0
 
 if autoInputGate == 1 then
-  -- AUTO: show computed target
-  displayInputFlow = math.floor(
-    ri.fieldDrainRate / (1 - targetStrength / 100)
-  )
+  -- AUTO: only calculate if reactor info is valid
+  if ri and ri.fieldDrainRate then
+    displayInputFlow = math.floor(
+      ri.fieldDrainRate / (1 - targetStrength / 100)
+    )
+  else
+    displayInputFlow = 0
+  end
 else
-  -- MANUAL: show user-selected value
+  -- MANUAL: always safe
   displayInputFlow = curInputGate
 end
 
@@ -180,6 +184,11 @@ local function update()
   while true do
     ri = reactor.getReactorInfo()
     if not ri then error("Invalid reactor setup") end
+ri = reactor.getReactorInfo()
+if not ri then
+  sleep(0.1)
+  goto continue
+end
 
     -- =====================
     -- DRAW REACTOR VALUES
