@@ -59,6 +59,9 @@ local last = {
   inGate = false,
   outGate = false,
   autoMode = false,
+  inputFlow = false,   -- MODIFIED: input flow display
+  outputFlow = false,  -- MODIFIED: output flow display
+
 }
 
 -- =====================
@@ -89,6 +92,32 @@ local function drawStaticUI()
 end
 
 drawStaticUI()
+-- =====================
+-- FLOW RATE READOUTS
+-- =====================
+local outputFlow = fluxgate.getFlow()
+if outputFlow ~= last.outputFlow then
+  f.draw_text(
+    mon,
+    18, 7,  -- same line as "Output Gate"
+    f.format_int(outputFlow) .. " rf/t",
+    colors.blue,
+    colors.black
+  )
+  last.outputFlow = outputFlow
+end
+
+local inputFlow = inputfluxgate.getFlow()
+if inputFlow ~= last.inputFlow then
+  f.draw_text(
+    mon,
+    18, 9,  -- same line as "Input Gate"
+    f.format_int(inputFlow) .. " rf/t",
+    colors.blue,
+    colors.black
+  )
+  last.inputFlow = inputFlow
+end
 
 -- =====================
 -- BUTTON HANDLER
