@@ -117,38 +117,70 @@ end
 local function update()
   while true do
     local ri = reactor.getReactorInfo()
-    if not ri then sleep(0.1) goto continue end
 
-    -- DISPLAY VALUES
-    local displayInputFlow =
-      autoInputGate == 1
-      and math.floor(ri.fieldDrainRate / (1 - targetStrength / 100))
-      or curInputGate
+    -- If reactor data is unavailable, skip safely
+    if not ri then
+      sleep(0.1)
+    else
+      -- =====================
+      -- INPUT FLOW DISPLAY VALUE
+      -- =====================
+      local displayInputFlow
 
-    if displayInputFlow ~= last.inputFlow then
-      f.draw_text(mon, 18, 9,
-        f.format_int(displayInputFlow) .. " rf/t",
-        colors.blue, colors.black)
-      last.inputFlow = displayInputFlow
+      if autoInputGate == 1 then
+        displayInputFlow = math.floor(
+          ri.fieldDrainRate / (1 - targetStrength / 100)
+        )
+      else
+        displayInputFlow = curInputGate
+      end
+
+      -- =====================
+      -- DRAW INPUT FLOW
+      -- =====================
+      if displayInputFlow ~= last.inputFlow then
+        f.draw_text(
+          mon,
+          18, 9,
+          f.format_int(displayInputFlow) .. " rf/t",
+          colors.blue,
+          colors.black
+        )
+        last.inputFlow = displayInputFlow
+      end
+
+      -- =====================
+      -- AU / MA INDICATOR
+      -- =====================
+      if autoInputGate ~= last.autoMode then
+        f.draw_text(
+          mon,
+          14, 10,
+          autoInputGate == 1 and "AU" or "MA",
+          colors.white,
+          colors.gray
+        )
+        last.autoMode = autoInputGate
+      end
+
+      -- =====================
+      -- MANUAL BUTTON VISIBILITY
+      -- =====================
+      if autoInputGate == 0 then
+        drawButtons(10)
+      end
+
+      -- =====================
+      -- APPLY AUTO FLOW
+      -- =====================
+      if autoInputGate == 1 then
+        inputfluxgate.setFlowOverride(displayInputFlow)
+      end
     end
 
-    if autoInputGate ~= last.autoMode then
-      f.draw_text(mon, 14, 10,
-        autoInputGate == 1 and "AU" or "MA",
-        colors.white, colors.gray)
-      last.autoMode = autoInputGate
-    end
-
-    if autoInputGate == 0 then drawButtons(10) end
-
-    -- APPLY AUTO FLOW
-    if autoInputGate == 1 then
-      inputfluxgate.setFlowOverride(displayInputFlow)
-    end
-
-    ::continue::
     sleep(0.1)
   end
 end
+
 
 parallel.waitForAny(buttons, update)
