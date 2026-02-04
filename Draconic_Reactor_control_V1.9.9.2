@@ -52,34 +52,61 @@ end
 -- MAIN LOOP (NO DIRTY CACHE)
 -- =====================
 local function update()
+  -- draw static UI ONCE
+  drawStatic()
+
   while true do
-    f.clear(mon)
-
-    f.draw_text(mon, 2, 2, "Reactor Status", colors.white, colors.black)
-    f.draw_text(mon, 2, 4, "Input Gate", colors.white, colors.black)
-    f.draw_text(mon, 2, 6, "Output Gate", colors.white, colors.black)
-
     local ri = reactor.getReactorInfo()
-    local status = ri and ri.status or "NO DATA"
 
+    -- Reactor status
+    local status = ri and ri.status or "NO DATA"
     f.draw_text(mon, 18, 2, status, colors.white, colors.gray)
 
+    -- Input flow target
     local inputDisplay
     if autoInputGate and ri then
-      inputDisplay = math.floor(ri.fieldDrainRate / (1 - targetStrength / 100))
-      inGate.setFlowOverride(inputDisplay)
+      inputDisplay = math.floor(
+        ri.fieldDrainRate / (1 - targetStrength / 100)
+      )
+      inputGate.setFlowOverride(inputDisplay)
     else
       inputDisplay = curInputGate
     end
 
-    f.draw_text(mon, 18, 4, inputDisplay .. " rf/t", colors.lime, colors.black)
-    f.draw_text(mon, 18, 6, outGate.getFlow() .. " rf/t", colors.orange, colors.black)
+    f.draw_text(
+      mon,
+      18, 9,
+      f.format_int(inputDisplay) .. " rf/t",
+      colors.lime,
+      colors.black
+    )
 
-    f.draw_text(mon, 14, 10, autoInputGate and "AU" or "MA", colors.white, colors.gray)
-    f.draw_text(mon, 2, 10, "<        >", colors.white, colors.gray)
+    -- Output flow (actual)
+    f.draw_text(
+      mon,
+      18, 7,
+      f.format_int(outputGate.getFlow()) .. " rf/t",
+      colors.orange,
+      colors.black
+    )
 
-    sleep(0.2)
+    -- AU / MA indicator
+    f.draw_text(
+      mon,
+      14, 10,
+      autoInputGate and "AU" or "MA",
+      colors.white,
+      colors.gray
+    )
+
+    -- Manual buttons
+    if not autoInputGate then
+      drawButtons(10)
+    end
+
+    sleep(0.15)
   end
 end
+
 
 parallel.waitForAny(buttons, update)
