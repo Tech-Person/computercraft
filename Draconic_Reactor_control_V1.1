@@ -34,25 +34,24 @@ local emergencyCharge = false
 local emergencyTemp = false
 
 monitor = f.periphSearch("monitor")
-inputfluxgate = f.periphSearch("flux_gate")
+inputfluxgate = f.periphSearch("flow_gate") -- MODIFIED: flux_gate → flow_gate
 fluxgate = peripheral.wrap(fluxgateSide)
 reactor = peripheral.wrap(reactorSide)
 
--- CC:Tweaked uses nil, not null
-if monitor == nil then -- MODIFIED: Lua has no `null`
+if monitor == nil then
 	error("No valid monitor was found")
 end
 
-if fluxgate == nil then -- MODIFIED: Lua has no `null`
+if fluxgate == nil then
 	error("No valid fluxgate was found")
 end
 
-if reactor == nil then -- MODIFIED: Lua has no `null`
+if reactor == nil then
 	error("No valid reactor was found")
 end
 
-if inputfluxgate == nil then -- MODIFIED: Lua has no `null`
-	error("No valid flux gate was found")
+if inputfluxgate == nil then
+	error("No valid flow gate was found") -- MODIFIED: wording updated
 end
 
 monX, monY = monitor.getSize()
@@ -61,7 +60,7 @@ mon.monitor, mon.X, mon.Y = monitor, monX, monY
 
 -- write settings to config file
 function save_config()
-  local sw = fs.open("config.txt", "w") -- MODIFIED: local variable safety
+  local sw = fs.open("config.txt", "w")
   sw.writeLine(version)
   sw.writeLine(autoInputGate)
   sw.writeLine(curInputGate)
@@ -70,7 +69,7 @@ end
 
 -- read settings from file
 function load_config()
-  local sr = fs.open("config.txt", "r") -- MODIFIED: local variable safety
+  local sr = fs.open("config.txt", "r")
   version = sr.readLine()
   autoInputGate = tonumber(sr.readLine())
   curInputGate = tonumber(sr.readLine())
@@ -86,7 +85,7 @@ end
 
 function buttons()
   while true do
-    local event, side, xPos, yPos = os.pullEvent("monitor_touch") -- MODIFIED: localize event vars
+    local event, side, xPos, yPos = os.pullEvent("monitor_touch")
 
     -- output gate controls
     if yPos == 8 then
@@ -152,9 +151,8 @@ function update()
       error("reactor has an invalid setup")
     end
 
-    -- DEBUG PRINTS (safe for booleans/tables)
     for k, v in pairs(ri) do
-      print(k .. ": " .. tostring(v)) -- MODIFIED: tostring for booleans
+      print(k .. ": " .. tostring(v))
     end
     print("Output Gate:", fluxgate.getSignalLowFlow())
     print("Input Gate:", inputfluxgate.getSignalLowFlow())
@@ -209,7 +207,6 @@ function update()
 
     f.draw_text_lr(mon, 2, 19, 1, "Action", action, colors.gray, colors.gray, colors.black)
 
-    -- reactor interaction logic (unchanged behavior)
     if emergencyCharge then reactor.chargeReactor() end
 
     if ri.status == "charging" then
@@ -228,7 +225,7 @@ function update()
 
     if ri.status == "online" then
       if autoInputGate == 1 then
-        local fluxval = ri.fieldDrainRate / (1 - (targetStrength / 100)) -- MODIFIED: localize variable
+        local fluxval = ri.fieldDrainRate / (1 - (targetStrength / 100))
         inputfluxgate.setSignalLowFlow(fluxval)
       else
         inputfluxgate.setSignalLowFlow(curInputGate)
