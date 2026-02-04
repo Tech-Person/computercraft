@@ -6,12 +6,9 @@ local outputGateSide = "top"
 local INPUT_GATE_NAME = "flow_gate_1"
 
 local targetStrength = 50
-local maxTemperature = 8000
-local safeTemperature = 3000
-local lowestFieldPercent = 15
 
 -- =====================
--- SYSTEM SETUP
+-- SETUP
 -- =====================
 os.loadAPI("lib/f")
 
@@ -20,34 +17,24 @@ local curInputGate = 222000
 
 local monitor = f.periphSearch("monitor")
 local reactor = peripheral.wrap(reactorSide)
-local fluxgate = peripheral.wrap(outputGateSide)
-local inputfluxgate = peripheral.wrap(INPUT_GATE_NAME)
+local outputGate = peripheral.wrap(outputGateSide)
+local inputGate = peripheral.wrap(INPUT_GATE_NAME)
 
-assert(monitor, "No monitor found")
-assert(reactor, "No reactor found")
-assert(fluxgate, "No output gate found")
-assert(inputfluxgate, "No input gate found")
+assert(monitor, "Monitor not found")
+assert(reactor, "Reactor not found")
+assert(outputGate, "Output gate not found")
+assert(inputGate, "Input gate not found")
 
-fluxgate.setOverrideEnabled(true)
-inputfluxgate.setOverrideEnabled(true)
+outputGate.setOverrideEnabled(true)
+inputGate.setOverrideEnabled(true)
 
 local monX, monY = monitor.getSize()
 local mon = { monitor = monitor, X = monX, Y = monY }
 
 -- =====================
--- STATE / CACHE
+-- DIRTY CACHE
 -- =====================
-local last = {
-  status = nil,
-  generation = nil,
-  temperature = nil,
-  energy = nil,
-  field = nil,
-  fuel = nil,
-  inputFlow = nil,
-  outputFlow = nil,
-  autoMode = nil,
-}
+local last = {}
 
 -- =====================
 -- UI HELPERS
@@ -61,7 +48,7 @@ local function drawButtons(y)
   f.draw_text(mon, 25, y, " > ", colors.white, colors.gray)
 end
 
-local function drawStaticUI()
+local function drawStatic()
   f.clear(mon)
   f.draw_text(mon, 2, 2, "Reactor Status", colors.white, colors.black)
   f.draw_text(mon, 2, 4, "Generation", colors.white, colors.black)
@@ -74,7 +61,7 @@ local function drawStaticUI()
   f.draw_text(mon, 2, 17, "Fuel", colors.white, colors.black)
 end
 
-drawStaticUI()
+drawStatic()
 
 -- =====================
 -- BUTTON HANDLER
@@ -84,14 +71,14 @@ local function buttons()
     local _, _, x, y = os.pullEvent("monitor_touch")
 
     if y == 8 then
-      local v = fluxgate.getFlow()
+      local v = outputGate.getFlow()
       if x <= 4 then v = v - 1000
       elseif x <= 9 then v = v - 10000
       elseif x <= 12 then v = v - 100000
       elseif x >= 25 then v = v + 1000
       elseif x >= 21 then v = v + 10000
       elseif x >= 17 then v = v + 100000 end
-      fluxgate.setFlowOverride(math.max(v, 0))
+      outputGate.setFlowOverride(math.max(v, 0))
     end
 
     if y == 10 and autoInputGate == 0 then
@@ -101,86 +88,57 @@ local function buttons()
       elseif x >= 25 then curInputGate = curInputGate + 1000
       elseif x >= 21 then curInputGate = curInputGate + 10000
       elseif x >= 17 then curInputGate = curInputGate + 100000 end
-      inputfluxgate.setFlowOverride(math.max(curInputGate, 0))
+      inputGate.setFlowOverride(math.max(curInputGate, 0))
     end
 
     if y == 10 and (x == 14 or x == 15) then
       autoInputGate = autoInputGate == 1 and 0 or 1
-      last.inputFlow = nil -- force redraw
+      last.inputDisplay = nil
     end
   end
 end
 
 -- =====================
--- MAIN LOOP
+-- MAIN LOOP (SINGLE SOURCE OF TRUTH)
 -- =====================
 local function update()
   while true do
     local ri = reactor.getReactorInfo()
 
-    -- If reactor data is unavailable, skip safely
-    if not ri then
-      sleep(0.1)
-    else
-      -- =====================
-      -- INPUT FLOW DISPLAY VALUE
-      -- =====================
-      local displayInputFlow
+    if ri then
+      -- -------- INPUT FLOW TARGET --------
+      local inputTarget =
+        autoInputGate == 1
+        and math.floor(ri.fieldDrainRate / (1 - targetStrength / 100))
+        or curInputGate
 
       if autoInputGate == 1 then
-        displayInputFlow = math.floor(
-          ri.fieldDrainRate / (1 - targetStrength / 100)
-        )
-      else
-        displayInputFlow = curInputGate
+        inputGate.setFlowOverride(inputTarget)
       end
 
-      -- =====================
-      -- DRAW INPUT FLOW
-      -- =====================
-      if displayInputFlow ~= last.inputFlow then
-        f.draw_text(
-          mon,
-          18, 9,
-          f.format_int(displayInputFlow) .. " rf/t",
-          colors.blue,
-          colors.black
-        )
-        last.inputFlow = displayInputFlow
+      -- -------- DRAW INPUT FLOW --------
+      if inputTarget ~= last.inputDisplay then
+        f.draw_text(mon, 18, 9,
+          f.format_int(inputTarget) .. " rf/t",
+          colors.blue, colors.black)
+        last.inputDisplay = inputTarget
       end
 
-      -- =====================
-      -- AU / MA INDICATOR
-      -- =====================
-      if autoInputGate ~= last.autoMode then
-        f.draw_text(
-          mon,
-          14, 10,
+      -- -------- AU / MA --------
+      if autoInputGate ~= last.mode then
+        f.draw_text(mon, 14, 10,
           autoInputGate == 1 and "AU" or "MA",
-          colors.white,
-          colors.gray
-        )
-        last.autoMode = autoInputGate
+          colors.white, colors.gray)
+        last.mode = autoInputGate
       end
 
-      -- =====================
-      -- MANUAL BUTTON VISIBILITY
-      -- =====================
       if autoInputGate == 0 then
         drawButtons(10)
-      end
-
-      -- =====================
-      -- APPLY AUTO FLOW
-      -- =====================
-      if autoInputGate == 1 then
-        inputfluxgate.setFlowOverride(displayInputFlow)
       end
     end
 
     sleep(0.1)
   end
 end
-
 
 parallel.waitForAny(buttons, update)
